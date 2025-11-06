@@ -54,9 +54,9 @@ def get_agent_commit_hash() -> str:
     """
     try:
         repo = Repo(REPO_ROOT, search_parent_directories=False)
+        return repo.head.object.hexsha
     except Exception:
         return "unavailable"
-    return repo.head.object.hexsha
 
 
 def get_rex_commit_hash() -> str:
@@ -64,9 +64,9 @@ def get_rex_commit_hash() -> str:
 
     try:
         repo = Repo(Path(swerex.__file__).resolve().parent.parent.parent, search_parent_directories=False)
+        return repo.head.object.hexsha
     except Exception:
         return "unavailable"
-    return repo.head.object.hexsha
 
 
 def get_rex_version() -> str:

@@ -681,15 +681,22 @@ class LiteLLMModel(AbstractModel):
         completion_kwargs = self.config.completion_kwargs
         if self.lm_provider == "anthropic":
             completion_kwargs["max_tokens"] = self.model_max_output_tokens
+
+        # Build sampling parameters - only include top_p if it's set and temperature is not being used
+        sampling_kwargs = {}
+        if temperature is not None or self.config.temperature != 0.0:
+            sampling_kwargs["temperature"] = self.config.temperature if temperature is None else temperature
+        elif self.config.top_p is not None:
+            sampling_kwargs["top_p"] = self.config.top_p
+
         try:
             response: litellm.types.utils.ModelResponse = litellm.completion(  # type: ignore
                 model=self.config.name,
                 messages=messages,
-                temperature=self.config.temperature if temperature is None else temperature,
-                top_p=self.config.top_p,
                 api_version=self.config.api_version,
                 api_key=self.config.choose_api_key(),
                 fallbacks=self.config.fallbacks,
+                **sampling_kwargs,
                 **completion_kwargs,
                 **extra_args,
                 n=n,
@@ -704,7 +711,14 @@ class LiteLLMModel(AbstractModel):
             raise
         self.logger.debug(f"Response: {response}")
         try:
-            cost = litellm.cost_calculator.completion_cost(response)
+            if response.model.startswith("litellm_proxy/"):
+                if "fireworks_ai" in response.model:
+                    custom_llm_provider = "fireworks_ai"
+                else:
+                    custom_llm_provider = None
+                response.model = response.model.split("/")[-1]
+                response._hidden_params['custom_llm_provider'] = custom_llm_provider
+            cost = litellm.cost_calculator.completion_cost(response, custom_llm_provider=custom_llm_provider)
         except Exception as e:
             self.logger.debug(f"Error calculating cost: {e}, setting cost to 0.")
             if self.config.per_instance_cost_limit > 0 or self.config.total_cost_limit > 0:
