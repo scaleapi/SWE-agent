@@ -2,7 +2,7 @@
 
 This guide explains how to run SWE-agent on the SWE-bench Pro dataset using Modal. This setup supports both direct command-line execution and a dockerized wrapper.
 
-For details about SWE-agent implementation, please see https://github.com/SWE-agent/SWE-agent.
+We strongly recommend you use SWE-agent as a submodule of the SWE_bench-Pro-os repository to leverage our helper scripts. See instructions at https://github.com/scaleapi/SWE-bench_Pro-os.
 
 ## Prerequisites
 
@@ -43,12 +43,25 @@ You'll be prompted to confirm each patch. To skip prompts and apply all patches 
 python patch.py --yes
 ```
 
-**Note**: Currently patches `swerex/deployment/modal.py` to customize Modal deployment behavior for SWE-bench Pro.
+**Note**: Currently patches include the following changes:
+- `swerex/deployment/modal.py` to customize Modal deployment behavior for SWE-bench Pro.
+- `swerex/deployment/config.py` to increase the deployment timeout from 1800 to 3600
+` `swerex/runtime/remote.py` to retry specific error types automatically
 
-# Generate Instances
-Before running SWE-agent, you must first generate the instance YAML file from the SWE-bench Pro dataset. This file contains all the necessary information for each instance including Docker image names, problem statements, and repository details.
+# Generate Instances 
+Before running SWE-agent, you must first generate the instance YAML file. Each instance must be formatted like the following:
+```
+- image_name: <docker_image_name>
+  problem_statement: <problem_statement>
+  instance_id: <instance_id>
+  base_commit: <base_commit_hash>
+  repo_name: app
+```
+## Generate SWE-bench Pro instances
 
-Run the generation script:
+To generate the instances from the SWE-bench Pro dataset, we recommend you use SWE-agent as a submodule of the SWE_bench-Pro-os repository to use our existing scripts. See instructions at https://github.com/scaleapi/SWE-bench_Pro-os.
+
+Run the generation script from SWE_Bench-Pro-os directory:
 ```bash
 python helper_code/generate_sweagent_instances.py --dockerhub_username <your-dockerhub-username>
 ```
@@ -221,6 +234,8 @@ python sweagent_wrapper.py wrapper_config
 will execute the sweagent and swebench commands defined in `sweagent_wrapper_configs/wrapper_config.yaml`
 
 You should be able to see the run logs actively your console, and final predictions will be written to `{--output_dir}/preds.json`. 
+
+To compile final predictions, you can use compile_predictions.py, or helper code in the SWE_bench-Pro-os/helper-code directory. End to end instructions are listed at https://github.com/scaleapi/SWE-bench_Pro-os 
 
 ### Config file or Command Changes
 
