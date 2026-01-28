@@ -231,6 +231,18 @@ class RunBatch:
                     continuous_submission_every=30,
                 )
             )
+
+        # Auto-add TaskDefinitionInjectionHook if task definitions file exists
+        # This enables the ask_user tool to access complete task specifications
+        task_def_file = config.output_dir / "task_definitions.json"
+        if task_def_file.exists():
+            from sweagent.run.hooks.task_definition_injection import TaskDefinitionInjectionHook
+
+            logger.info(
+                f"Found task definitions file, enabling ask_user tool support: {task_def_file}"
+            )
+            rb.add_hook(TaskDefinitionInjectionHook(task_definitions_file=task_def_file))
+
         return rb
 
     def add_hook(self, hook: RunHook) -> None:

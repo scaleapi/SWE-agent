@@ -1,0 +1,13 @@
+tools:
+  ask_user:
+    signature: "ask_user <question> [<context>]"
+    docstring: "Ask the user a clarifying question to get more information about the task. Use this when the task is ambiguous or you need specific details to proceed."
+    arguments:
+      - name: question
+        type: string
+        description: "The clarifying question to ask the user"
+        required: true
+      - name: context
+        type: string
+        description: "Optional additional context (e.g., conversation history summary)"
+        required: false
