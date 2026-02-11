@@ -112,6 +112,12 @@ class ModalDeploymentConfig(BaseModel):
     installing pipx might fail (or be slow).
     """
 
+    modal_aws_secret_name: str | None = None
+    """The name of the Modal secret containing AWS credentials for ECR access.
+    Required when using ECR images. Can also be set via the MODAL_AWS_SECRET_NAME
+    environment variable as a fallback.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     def get_deployment(self) -> AbstractDeployment:

@@ -6,9 +6,7 @@ import uuid
 from pathlib import Path, PurePath
 from typing import Any
 
-import boto3
 import modal
-from botocore.exceptions import NoCredentialsError
 from typing_extensions import Self
 
 from swerex import PACKAGE_NAME, REMOTE_EXECUTABLE_NAME
@@ -32,9 +30,10 @@ def _get_modal_user() -> str:
 class _ImageBuilder:
     """_ImageBuilder.auto() is used by ModalDeployment"""
 
-    def __init__(self, *, install_pipx: bool = True, logger: logging.Logger | None = None):
+    def __init__(self, *, install_pipx: bool = True, logger: logging.Logger | None = None, modal_aws_secret_name: str | None = None):
         self.logger = logger or get_logger("rex_image_builder")
         self._install_pipx = install_pipx
+        self._modal_aws_secret_name = modal_aws_secret_name
 
     def from_file(self, image: PurePath, *, build_context: PurePath | None = None) -> modal.Image:
         self.logger.info(f"Building image from file {image}")
@@ -64,6 +63,25 @@ class _ImageBuilder:
             secrets = None
         return modal.Image.from_registry(image, secrets=secrets)
 
+    def from_ecr(self, image: str) -> modal.Image:
+        self.logger.info(f"Building image from ECR {image}")
+        secret_name = self._modal_aws_secret_name or os.environ.get("MODAL_AWS_SECRET_NAME")
+        if not secret_name:
+            msg = (
+                "ECR image detected but no Modal AWS secret name configured. "
+                "Set modal_aws_secret_name in the config or the MODAL_AWS_SECRET_NAME environment variable."
+            )
+            raise ValueError(msg)
+        self.logger.debug(f"Using Modal AWS secret: {secret_name}")
+        return modal.Image.from_aws_ecr(  # type: ignore
+            image,
+            secret=modal.Secret.from_name(secret_name),
+            setup_dockerfile_commands=[
+                "RUN apt update && apt install -y pip || true",
+                "RUN python -m pip config set global.break-system-packages true || true",
+            ],
+        )
+
     def ensure_pipx_installed(self, image: modal.Image) -> modal.Image:
 
         image = image\
@@ -86,6 +104,8 @@ class _ImageBuilder:
             raise FileNotFoundError(msg)
         elif Path(image_spec).is_file():
             image = self.from_file(Path(image_spec))
+        elif isinstance(image_spec, str) and "amazonaws.com" in image_spec:
+            image = self.from_ecr(image_spec)
         else:
             image = self.from_registry(image_spec)  # type: ignore
 
@@ -109,6 +129,7 @@ class ModalDeployment(AbstractDeployment):
         modal_sandbox_kwargs: dict[str, Any] | None = None,
         install_pipx: bool = True,
         deployment_timeout: float = 3600.0,
+        modal_aws_secret_name: str | None = None,
     ):
         """Deployment for modal.com. The deployment will only start when the
         `start` method is being called.
@@ -118,12 +139,15 @@ class ModalDeployment(AbstractDeployment):
                 1. `modal.Image` object
                 2. Path to a Dockerfile
                 3. Dockerhub image name (e.g. `python:3.11-slim`)
+                4. ECR image URI (e.g. `123456789012.dkr.ecr.us-east-1.amazonaws.com/my-image:tag`)
             startup_timeout: The time to wait for the runtime to start.
             runtime_timeout: The runtime timeout.
             deployment_timeout: The deployment timeout.
             modal_sandbox_kwargs: Additional arguments to pass to `modal.Sandbox.create`
+            modal_aws_secret_name: Name of the Modal secret for AWS ECR access.
+                Falls back to MODAL_AWS_SECRET_NAME env var.
         """
-        self._image = _ImageBuilder(install_pipx=install_pipx, logger=logger).auto(image)
+        self._image = _ImageBuilder(install_pipx=install_pipx, logger=logger, modal_aws_secret_name=modal_aws_secret_name).auto(image)
         self._runtime: RemoteRuntime | None = None
         self._startup_timeout = startup_timeout
         self._sandbox: modal.Sandbox | None = None
@@ -150,6 +174,7 @@ class ModalDeployment(AbstractDeployment):
             runtime_timeout=config.runtime_timeout,
             deployment_timeout=config.deployment_timeout,
             modal_sandbox_kwargs=config.modal_sandbox_kwargs,
+            modal_aws_secret_name=config.modal_aws_secret_name,
         )
 
     def _get_token(self) -> str:
