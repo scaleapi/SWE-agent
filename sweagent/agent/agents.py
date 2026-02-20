@@ -7,6 +7,7 @@ import logging
 import os
 import re
 import shlex
+import threading
 import time
 from pathlib import Path, PurePosixPath
 from typing import Annotated, Any, Literal
@@ -62,25 +63,46 @@ from sweagent.utils.patch_formatter import PatchFormatter
 
 
 # Global task definitions cache for ask_user interception
+_task_definitions_lock = threading.Lock()
 _task_definitions_cache: dict | None = None
 _task_definitions_path: str | None = None
 
 
-def _load_task_definitions(output_dir: Path | None) -> dict | None:
-    """Load task definitions from output directory if available."""
-    global _task_definitions_cache, _task_definitions_path
+def _find_task_definitions_file(traj_path: Path | None) -> Path | None:
+    """Search for task_definitions.json in parent directories of traj_path.
 
-    if output_dir is None:
+    Handles different directory structures:
+    - Single test: output_dir/instance_id/instance_id.traj (2 levels up)
+    - Benchmark: output_dir/exp_N/instance_id/instance_id.traj (3 levels up)
+    """
+    if traj_path is None:
         return None
 
-    task_def_file = output_dir / "task_definitions.json"
+    # Search up to 4 parent levels for task_definitions.json
+    current = traj_path.parent  # Start from directory containing .traj
+    for _ in range(4):
+        task_def_file = current / "task_definitions.json"
+        if task_def_file.exists():
+            return task_def_file
+        current = current.parent
+    return None
+
+
+def _load_task_definitions(traj_path: Path | None) -> dict | None:
+    """Load task definitions by searching parent directories."""
+    global _task_definitions_cache, _task_definitions_path
+
+    task_def_file = _find_task_definitions_file(traj_path)
+    if task_def_file is None:
+        return None
+
     task_def_str = str(task_def_file)
 
-    # Return cached if same file
-    if _task_definitions_path == task_def_str and _task_definitions_cache is not None:
-        return _task_definitions_cache
+    with _task_definitions_lock:
+        # Return cached if same file
+        if _task_definitions_path == task_def_str and _task_definitions_cache is not None:
+            return _task_definitions_cache
 
-    if task_def_file.exists():
         try:
             with open(task_def_file, "r") as f:
                 _task_definitions_cache = json.load(f)
@@ -91,13 +113,13 @@ def _load_task_definitions(output_dir: Path | None) -> dict | None:
     return None
 
 
-def _handle_ask_user_on_host(question: str, context: str, instance_id: str, output_dir: Path | None, logger) -> str:
+def _handle_ask_user_on_host(question: str, context: str, instance_id: str, traj_path: Path | None, logger) -> str:
     """Handle ask_user command on the host side using litellm.
 
     This function intercepts ask_user calls to run the LLM call on the host,
     which can reach internal API endpoints that the container cannot access.
     """
-    task_defs = _load_task_definitions(output_dir)
+    task_defs = _load_task_definitions(traj_path)
 
     if task_defs is None or instance_id not in task_defs:
         return f"Error: No task definition found for instance {instance_id}"
@@ -156,7 +178,7 @@ ENVIRONMENT CONTEXT:
     # Get API credentials from environment
     api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("LLM_API_KEY")
     api_base = os.environ.get("OPENAI_BASE_URL") or os.environ.get("LLM_BASE_URL")
-    model = os.environ.get("USER_SIMULATOR_MODEL", "openai/gpt-5.2")
+    model = os.environ.get("USER_SIMULATOR_MODEL", "openai/gpt-4.1-2025-04-14")
 
     if not api_key:
         return "Error: No API key available for user simulation"
@@ -173,7 +195,7 @@ ENVIRONMENT CONTEXT:
             api_base=api_base,
             timeout=30,
         )
-        result = response.choices[0].message.content
+        result = response.choices[0].message.content or ""
         logger.info(f"ask_user response generated: '{result[:100]}...'")
         return result
     except Exception as e:
@@ -193,7 +215,7 @@ def _parse_ask_user_command(command: str) -> tuple[str, str] | None:
     Returns (question, context) tuple or None if not an ask_user command.
     """
     command = command.strip()
-    if not command.startswith("ask_user"):
+    if not (command == "ask_user" or command.startswith("ask_user ") or command.startswith("ask_user\t")):
         return None
 
     # Remove the "ask_user" prefix
@@ -215,8 +237,6 @@ def _parse_ask_user_command(command: str) -> tuple[str, str] | None:
             return (match.group(1), match.group(2) or "")
         # Last resort: treat entire string as question
         return (args_str, "")
-
-    return None
 
 
 class TemplateConfig(BaseModel):
@@ -1112,13 +1132,11 @@ class DefaultAgent(AbstractAgent):
         if ask_user_args is not None:
             question, context = ask_user_args
             instance_id = self._problem_statement.id if self._problem_statement else "unknown"
-            # output_dir is parent of traj_path's parent (traj_path = output_dir/instance_id/instance_id.traj)
-            output_dir = self.traj_path.parent.parent if self.traj_path else None
             step.observation = _handle_ask_user_on_host(
                 question=question,
                 context=context,
                 instance_id=instance_id,
-                output_dir=output_dir,
+                traj_path=self.traj_path,
                 logger=self.logger,
             )
             step.execution_time = time.perf_counter() - execution_t0

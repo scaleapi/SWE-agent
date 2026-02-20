@@ -8,7 +8,6 @@ import logging
 import os
 
 from openai import OpenAI
-from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
 
 logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -47,14 +46,9 @@ def get_openai_client() -> OpenAI:
     return _client
 
 
-@retry(
-    stop=stop_after_attempt(1),  # No retries - fail fast for debugging
-    wait=wait_exponential(multiplier=1, exp_base=2, max=5),
-    before_sleep=before_sleep_log(logger, logging.WARNING),
-)
 def llm_completion(model: str, messages: list, **kwargs) -> str:
     """
-    LLM completion with automatic retries.
+    LLM completion.
 
     Args:
         model: Model identifier (e.g., "openai/gpt-4o" for LiteLLM proxy)
