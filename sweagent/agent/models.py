@@ -736,6 +736,17 @@ class LiteLLMModel(AbstractModel):
         output_tokens = 0
         for i in range(n_choices):
             output = choices[i].message.content or ""
+            reasoning_content = getattr(choices[i].message, 'reasoning_content', None)
+            if reasoning_content:
+                has_code_block_in_reasoning = "```" in reasoning_content
+                has_code_block_in_content = output and "```" in output
+
+                if has_code_block_in_reasoning:
+                    output = reasoning_content
+                elif not output:
+                    output = reasoning_content
+                elif not has_code_block_in_content:
+                    output = reasoning_content + "\n\n" + output
             output_tokens += litellm.utils.token_counter(text=output, model=self.config.name)
             output_dict = {"message": output}
             if self.tools.use_function_calling:
@@ -818,17 +829,20 @@ class LiteLLMModel(AbstractModel):
         messages = []
         for history_item in history:
             role = get_role(history_item)
+            content = history_item["content"]
+            if not content or (isinstance(content, str) and not content.strip()):
+                content = "(empty)"
             if role == "tool":
                 message = {
                     "role": role,
-                    "content": history_item["content"],
+                    "content": content,
                     # Only one tool call per observations
                     "tool_call_id": history_item["tool_call_ids"][0],  # type: ignore
                 }
             elif (tool_calls := history_item.get("tool_calls")) is not None:
-                message = {"role": role, "content": history_item["content"], "tool_calls": tool_calls}
+                message = {"role": role, "content": content, "tool_calls": tool_calls}
             else:
-                message = {"role": role, "content": history_item["content"]}
+                message = {"role": role, "content": content}
             if "cache_control" in history_item:
                 message["cache_control"] = history_item["cache_control"]
             messages.append(message)
