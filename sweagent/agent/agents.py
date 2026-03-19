@@ -108,8 +108,8 @@ def _load_task_definitions(traj_path: Path | None) -> dict | None:
                 _task_definitions_cache = json.load(f)
                 _task_definitions_path = task_def_str
                 return _task_definitions_cache
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).warning("Failed to load task definitions from %s: %s", task_def_file, e)
     return None
 
 
