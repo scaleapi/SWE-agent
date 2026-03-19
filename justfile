@@ -17,6 +17,7 @@ run:
     --env-file $(pwd)/.env \
     -v "$HOME/.modal.toml:/root/.modal.toml" \
     -v "$(pwd)/config:/app/config" \
+    -v "$(pwd)/data:/app/data" \
     -v "$(pwd)/sweagent_wrapper_configs:/app/sweagent_wrapper_configs" \
     -v "$(pwd)/sweagent_results:/app/sweagent_results" \
     --add-host=host.docker.internal:host-gateway \
